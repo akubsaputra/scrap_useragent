@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: indotex-license-server
+    env: python
+    buildCommand: ""
+    startCommand: "python license_server.py"
