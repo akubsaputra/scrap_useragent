@@ -1,73 +1,46 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
-import uuid
+import os, json, hashlib, uuid, time
 
 app = Flask(__name__)
 
-# Contoh database sementara (bisa diganti ke database permanen)
+# Simulasi database sederhana (nanti bisa diganti file JSON di storage online)
 users = {
-    "demo": {
-        "password": "1234",
-        "devices": {},
-        "max_devices": 1,
-        "expires": "2025-12-31"
+    "demo_user": {
+        "password": "demo_pass",
+        "device_id": None,
+        "expires": time.time() + 86400,  # 1 hari aktif
     }
 }
 
-@app.route("/")
-def home():
-    return "✅ Indotex License Server aktif"
+def hash_device(device_info):
+    return hashlib.sha256(device_info.encode()).hexdigest()
 
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
-    username = data.get("username")
+    username = data.get("user")
     password = data.get("password")
-    device_id = data.get("device_id")
+    device_id = hash_device(data.get("device", ""))
 
-    if not username or not password or not device_id:
-        return jsonify({"status": "error", "message": "Data tidak lengkap"}), 400
+    if username not in users:
+        return jsonify({"status": "error", "msg": "User tidak ditemukan"})
+    user = users[username]
 
-    user = users.get(username)
-    if not user or user["password"] != password:
-        return jsonify({"status": "error", "message": "User atau password salah"}), 401
+    if user["password"] != password:
+        return jsonify({"status": "error", "msg": "Password salah"})
+    if user["expires"] < time.time():
+        return jsonify({"status": "error", "msg": "Lisensi sudah kadaluarsa"})
+    if user["device_id"] and user["device_id"] != device_id:
+        return jsonify({"status": "error", "msg": "Lisensi ini hanya untuk 1 device"})
+    if not user["device_id"]:
+        user["device_id"] = device_id  # lock ke 1 device
 
-    # Cek masa aktif
-    if datetime.now() > datetime.strptime(user["expires"], "%Y-%m-%d"):
-        return jsonify({"status": "error", "message": "Lisensi sudah kedaluwarsa"}), 403
+    return jsonify({"status": "ok", "msg": "Login berhasil", "user": username})
 
-    # Cek device ID
-    devices = user["devices"]
-    if device_id in devices:
-        return jsonify({"status": "ok", "message": "Login sukses", "license": user})
-    elif len(devices) < user["max_devices"]:
-        devices[device_id] = {"activated": str(datetime.now())}
-        return jsonify({"status": "ok", "message": "Perangkat baru terdaftar", "license": user})
-    else:
-        return jsonify({"status": "error", "message": "Batas perangkat tercapai"}), 403
-
-@app.route("/admin/users", methods=["GET"])
-def list_users():
-    return jsonify(users)
-
-@app.route("/admin/create", methods=["POST"])
-def create_user():
-    data = request.get_json()
-    username = data["username"]
-    password = data["password"]
-    expires = data.get("expires", "2025-12-31")
-    max_devices = int(data.get("max_devices", 1))
-    if username in users:
-        return jsonify({"status": "error", "message": "User sudah ada"}), 400
-    users[username] = {"password": password, "devices": {}, "max_devices": max_devices, "expires": expires}
-    return jsonify({"status": "ok", "message": f"User {username} dibuat"})
-
-@app.route("/admin/delete/<username>", methods=["DELETE"])
-def delete_user(username):
-    if username in users:
-        del users[username]
-        return jsonify({"status": "ok", "message": f"User {username} dihapus"})
-    return jsonify({"status": "error", "message": "User tidak ditemukan"}), 404
+@app.route("/")
+def index():
+    return "Indotex License Server aktif ✅"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
